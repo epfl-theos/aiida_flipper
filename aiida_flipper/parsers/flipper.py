@@ -102,11 +102,6 @@ class FlipperParser(PwParser):
         pos_file = os.path.join(temp_folder, FlipperCalculation._POS_FILE)
         for_file = os.path.join(temp_folder, FlipperCalculation._FOR_FILE)
         vel_file = os.path.join(temp_folder, FlipperCalculation._VEL_FILE)
-        for filename in (evp_file, pos_file, for_file, vel_file):
-            # Checking if files exists here.
-            # Check whether files have meaningful information is done later...
-            if not os.path.exists(filename):
-                return self.exit_codes.ERROR_MISSING_TRAJECTORY_FILES
 
         ########################## OUTPUT FILE ##################################
         if input_dict['CONTROL'].get('tstress', False):
@@ -128,6 +123,8 @@ class FlipperParser(PwParser):
         else:
             stresses = None
 
+        # After checking that output folder exists I check for stdout first before going to verlet files
+
         parsed_stdout, logs_stdout = self.parse_stdout(input_dict, parser_options=None, parsed_xml=None)
         parsed_stdout.pop('trajectory', None)
         parsed_stdout.pop('structure', None)
@@ -137,6 +134,14 @@ class FlipperParser(PwParser):
         ignore = ['Error while parsing ethr.', 'DEPRECATED: symmetry with ibrav=0, use correct ibrav instead']
         self.emit_logs(logs_stdout, ignore=ignore)
 
+        ########################## VERLET FILES ##################################
+
+        for filename in (evp_file, pos_file, for_file, vel_file):
+            # Checking if files exists here.
+            # Check whether files have meaningful information is done later...
+            if not os.path.exists(filename):
+                return self.exit_codes.ERROR_MISSING_TRAJECTORY_FILES
+            
         ########################## EVP FILE #################################
         with open(evp_file) as f:
             try:
@@ -185,7 +190,10 @@ class FlipperParser(PwParser):
                 # Check if this is an empty file,
                 # Maybe check before if file is empty?
                 if len(evp_data) == 0:
-                    return self.exit_codes.ERROR_EMPTY_TRAJECTORY_FILES
+                    if '' in logs_stdout.error:
+                        return self.exit_codes.ERROR_ELECTRONIC_CONVERGENCE_NOT_REACHED
+                    else:
+                        return self.exit_codes.ERROR_EMPTY_TRAJECTORY_FILES
 
                 # I go through the data line by line, which is much slower, but the only way to do things properly.
                 # Since the only way I can get here (I think) is if the last column of EVP file is not readable,
@@ -199,14 +207,20 @@ class FlipperParser(PwParser):
                             scalar_quantities[iline, ival] = float(val)
                         except ValueError:
                             if raise_if_nan_in_values:
-                                return self.exit_codes.ERROR_TRAJECTORY_WITH_NAN
+                                if 'ERROR_ELECTRONIC_CONVERGENCE_NOT_REACHED' in logs_stdout.error:
+                                    return self.exit_codes.ERROR_ELECTRONIC_CONVERGENCE_NOT_REACHED
+                                else:
+                                    return self.exit_codes.ERROR_TRAJECTORY_WITH_NAN
                             else:
                                 scalar_quantities[iline, ival] = np.nan
                     try:
                         convergence[iline] = F90_BOOL_DICT[line.split()[7]]
                     except KeyError:
                         if raise_if_nan_in_values:
-                            return self.exit_codes.ERROR_TRAJECTORY_WITH_NAN
+                            if 'ERROR_ELECTRONIC_CONVERGENCE_NOT_REACHED' in logs_stdout.error:
+                                return self.exit_codes.ERROR_ELECTRONIC_CONVERGENCE_NOT_REACHED
+                            else:
+                                return self.exit_codes.ERROR_TRAJECTORY_WITH_NAN
                         else:
                             convergence[iline] = np.nan
 
@@ -402,7 +416,7 @@ class FlipperParser(PwParser):
         #    if exit_code:
         #        return self.exit(exit_code)
 
-        # TODO: not sure this can actually happen
+        # This may happen in case of ab initio MD
         if 'ERROR_ELECTRONIC_CONVERGENCE_NOT_REACHED' in logs_stdout.error:
             return self.exit_codes.ERROR_ELECTRONIC_CONVERGENCE_NOT_REACHED
 

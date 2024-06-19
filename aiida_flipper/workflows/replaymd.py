@@ -7,7 +7,7 @@ from aiida.plugins import CalculationFactory, GroupFactory, WorkflowFactory
 
 ## builder imports
 from aiida.common.lang import type_check
-from aiida_quantumespresso.common.types import ElectronicType, SpinType
+from aiida_quantumespresso.common.types import ElectronicType, SpinType, RestartType
 SsspFamily = GroupFactory('pseudo.family.sssp')
 PseudoDojoFamily = GroupFactory('pseudo.family.pseudo_dojo')
 CutoffsPseudoPotentialFamily = GroupFactory('pseudo.family.cutoffs')
@@ -74,7 +74,10 @@ class ReplayMDWorkChain(PwBaseWorkChain):
         'qe': qe_defaults,
         'delta_threshold_degauss': 30,
         'delta_factor_degauss': 0.1,
-        'delta_factor_mixing_beta': 0.8,
+        'delta_factor_mixing_beta': 0.2,
+        'delta_factor_conv_thr': 10,
+        'delta_factor_electron_maxstep': 2,
+        'delta_maximum_electron_maxstep': 200,
         'delta_factor_max_seconds': 0.90,
         'delta_max_seconds': 180,
         'delta_factor_nbnd': 0.05,
@@ -276,6 +279,12 @@ class ReplayMDWorkChain(PwBaseWorkChain):
             parameters['SYSTEM']['nspin'] = 2
             parameters['SYSTEM']['starting_magnetization'] = starting_magnetization
 
+        # disabling flipper specific inputs in case of FPMD calculation
+        if not parameters['CONTROL']['lflipper']:
+            parameters['CONTROL'].pop('flipper_do_nonloc')
+            parameters['CONTROL'].pop('ldecompose_forces')
+            parameters['CONTROL'].pop('ldecompose_ewald')
+            
         # pylint: disable=no-member
         builder = cls.get_builder()
         builder.pw['code'] = code
@@ -416,7 +425,7 @@ class ReplayMDWorkChain(PwBaseWorkChain):
                 if self.ctx.thermalised_trajectory.get_array('steps').size > 1:
                     raise Exception(f'The trajectory <{self.ctx.thermalised_trajectory.id}> provided for thermalisation is too long')
             elif not self.inputs.get('previous_trajectory'):
-                self.report('No trajectory found for thermalisation nor a previous ab initio trajectory found for continuing, which is not expected if this is a first MD iteration')
+                self.report('No trajectory found for thermalisation at the pinball level, which is recommended if this is a first MD iteration')
 
 #    def validate_kpoints(self):
 #        """Validate the inputs related to k-points.
@@ -441,6 +450,20 @@ class ReplayMDWorkChain(PwBaseWorkChain):
 #        `automatic_parallelization` is specified. If this is not the case, the `metadata.options` should at least
 #        contain the options `resources` and `max_wallclock_seconds`, where `resources` should define the `num_machines`.
 #        """
+
+    def set_restart_type(self, restart_type, parent_folder=None):
+        """Set the restart type for the next iteration."""
+
+        if parent_folder is None and restart_type != RestartType.FROM_SCRATCH:
+            raise ValueError('When not restarting from scratch, a `parent_folder` must be provided.')
+
+        if restart_type == RestartType.FROM_SCRATCH:
+            self.ctx.inputs.parameters['CONTROL']['restart_mode'] = 'from_scratch'
+            self.ctx.inputs.parameters['ELECTRONS'].pop('startingpot', None)
+            self.ctx.inputs.parameters['ELECTRONS'].pop('startingwfc', None)
+            self.ctx.inputs.pop('parent_folder', None)
+
+        # Any other restart types don't make sense in MD calculations as we always do a dirty restart
 
     def set_max_seconds(self, max_wallclock_seconds):
         """Set the `max_seconds` to a fraction of `max_wallclock_seconds` option to prevent out-of-walltime problems.
@@ -558,11 +581,6 @@ class ReplayMDWorkChain(PwBaseWorkChain):
         self.ctx.inputs.metadata['label'] = f'flipper_{self.ctx.iteration:02d}'
         self.ctx.has_initial_velocities = False
 
-        ## if this is not flipper MD
-        if not self.ctx.inputs.parameters['CONTROL'].get('lflipper', False):
-           self.ctx.inputs.parameters['IONS']['wfc_extrapolation'] = 'second_order'
-           self.ctx.inputs.parameters['IONS']['pot_extrapolation'] = 'second_order'
-
         ## HUSTLER STUFF (not implemented)
         if self.inputs.get('is_hustler', False):
             raise NotImplementedError('Please run hustler workchain.')
@@ -669,7 +687,7 @@ class ReplayMDWorkChain(PwBaseWorkChain):
             # because the error handlers in the last iteration can have qualified a "failed" process as satisfactory
             # for the outcome of the work chain and so have marked it as `is_finished=True`.
             if not self.ctx.is_finished and self.ctx.iteration >= self.inputs.max_iterations.value:
-                self.report(f'reached the maximum number of iterations {self.inputs.max_iterations.valu}: last ran {self.ctx.process_name}<{node.pk}>')
+                self.report(f'reached the maximum number of iterations {self.inputs.max_iterations.value}: last ran {self.ctx.process_name}<{node.pk}>')
                 return self.exit_codes.ERROR_MAXIMUM_ITERATIONS_EXCEEDED  # pylint: disable=no-member
         except AttributeError:
             self.report(f'workchain did not run since a previous trajectory<{self.ctx.previous_trajectory}> already had the required number of nsteps')
@@ -727,6 +745,35 @@ class ReplayMDWorkChain(PwBaseWorkChain):
             self.ctx.restart_calc = calculation
             if calculation.exit_status != 0: self.report_error_handled(calculation, 'Restarting calculation...')
             return ProcessHandlerReport(True)
+
+    @process_handler(priority=410, exit_codes=[PwCalculation.exit_codes.ERROR_ELECTRONIC_CONVERGENCE_NOT_REACHED,])
+    def handle_electronic_convergence_not_reached(self, calculation):
+        """Handle `ERROR_ELECTRONIC_CONVERGENCE_NOT_REACHED` error.
+
+        Decrease the mixing beta and fully restart from the previous calculation.
+        """
+        factor = self.defaults.delta_factor_mixing_beta
+        mixing_beta = self.ctx.inputs.parameters.get('ELECTRONS', {}).get('mixing_beta', self.defaults.qe.mixing_beta)
+        mixing_beta_new = mixing_beta * factor
+
+        factor_ct = self.defaults.delta_factor_conv_thr
+        conv_thr = self.ctx.inputs.parameters.get('ELECTRONS', {}).get('conv_thr', self.defaults.qe.conv_thr)
+        conv_thr_new = conv_thr * factor_ct
+
+        factor_ms = self.defaults.delta_factor_electron_maxstep
+        electron_maxstep = self.ctx.inputs.parameters.get('ELECTRONS', {}).get('electron_maxstep', self.defaults.qe.electron_maxstep)
+        electron_maxstep_new = min(electron_maxstep * factor_ms, self.defaults.delta_maximum_electron_maxstep)
+
+        self.ctx.inputs.parameters['ELECTRONS']['mixing_beta'] = mixing_beta_new
+        self.ctx.inputs.parameters['ELECTRONS']['conv_thr'] = conv_thr_new
+        self.ctx.inputs.parameters['ELECTRONS']['electron_maxstep'] = electron_maxstep_new
+
+        action = f'reduced beta mixing from {mixing_beta} to {mixing_beta_new} and increased electronic convergence threshold from {conv_thr} to {conv_thr_new} and increased maximum electron step from {electron_maxstep} to {electron_maxstep_new} restarting from the last calculation'
+
+        self.set_restart_type(RestartType.FROM_SCRATCH, calculation.outputs.remote_folder)
+        self.report_error_handled(calculation, action)
+
+        return ProcessHandlerReport(True)
 
 #    @process_handler(priority=600)
 #    def handle_unrecoverable_failure(self, calculation):
