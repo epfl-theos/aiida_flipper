@@ -81,8 +81,6 @@ class LinDiffusionWorkChain(ProtocolMixin, BaseRestartWorkChain):
         self.ctx.msd_parameters_d = self.inputs.msd_parameters.get_dict()
         self.ctx.diffusion_parameters_d = self.inputs.diffusion_parameters.get_dict()
 
-        # MSD dict cannot contain items not recognised by SAMOS
-        self.ctx.t_fit_fraction = self.ctx.msd_parameters_d.pop('t_fit_fraction')
         # If AIMD is launched
         if not self.ctx.replay_inputs.pw.parameters['CONTROL'].get('lflipper', False):
             self.report('Launching ab initio MD runs.')
@@ -197,7 +195,7 @@ class LinDiffusionWorkChain(ProtocolMixin, BaseRestartWorkChain):
             complete_missing = len(self.ctx.current_structure.sites) != last_trajectory.get_attribute('array|positions')[1]
             # complete_missing tells inline function to append additional sites from the structure that needs to be passed in such case
             kwargs = dict(trajectory=last_trajectory, 
-                        parameters=get_or_create_input_node(orm.Dict, dict(
+                            parameters=get_or_create_input_node(orm.Dict, dict(
                             step_index=-1,
                             recenter=False,
                             create_settings=True,
@@ -243,8 +241,6 @@ class LinDiffusionWorkChain(ProtocolMixin, BaseRestartWorkChain):
 
         try:
             trajectory = workchain.outputs.total_trajectory
-            # setting up the fitting window 
-            self.ctx.msd_parameters_d['t_end_fit_fs'] = round((trajectory.attributes['sim_time_fs'] - self.ctx.msd_parameters_d['equilibration_time_fs']) * self.ctx.t_fit_fraction, -1)
         except (KeyError, exceptions.NotExistent):
             self.report('the Md run with ReplayMDWorkChain did not generate output trajectory')
             

@@ -259,8 +259,8 @@ class ReplayMDHustlerWorkChain(PwBaseWorkChain):
                 builder.kpoints = kpoints
             else: 
                 builder.kpoints = inputs['kpoints']
-
-        builder['pw']['parent_folder'] = parent_folder
+        if parent_folder:
+            builder['pw']['parent_folder'] = parent_folder
         if nstep: builder['nstep'] = nstep
         else: builder['nstep'] = orm.Int(inputs['nstep'])
 
