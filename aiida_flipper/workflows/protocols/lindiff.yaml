@@ -12,8 +12,7 @@ default_inputs:
         'stepsize_tau' : 1
         'nr_of_blocks' : 1
         't_start_fs' : 0
-        't_start_fit_fs' : 2.5e+4 # 25 ps
-        't_end_fit_fs' : 5.e+5 # this is automated, if `t_end_fit_fs_length` is provided, but still needed as a dummy input
+        't_start_fit_fs' : 2.5e+3 # 2.5ps
         't_end_fit_fs_length' : 8.e+4 # (80ps) length by which t_end_fit_fs will be incremented
         't_fit_fraction' : 0.7 # fraction of output trajectory used for fitting
         'do_com' : False
@@ -44,20 +43,44 @@ default_protocol: moderate
 protocols:
     moderate:
         description: 'Protocol to perform the computation at normal precision at moderate computational cost.'
+    
     precise:
         description: 'Protocol to perform the computation at high precision at higher computational cost.'
         diffusion_parameters:
             'max_md_iterations': 5
-            'min_md_iterations': 2
+            'min_md_iterations': 1
+    
     fast:
         description: 'Protocol to perform the computation at low precision at minimal computational cost for testing purposes.'
         diffusion_parameters:
             'max_md_iterations': 1
             'sem_relative_threshold': 0.25
         msd_parameters:
-            'equilibration_time_fs': 6.e+4
-            't_start_fit_fs' : 2.e+4 # 20 ps
-            't_end_fit_fs_length' : 7.e+4 # 70ps
+            'equilibration_time_fs': 5.e+4
+            't_start_fit_fs' : 2.e+3 
+            't_end_fit_fs_length' : 6.e+4 
             't_fit_fraction' : 0.7
         md:
-            nstep: 5.e+5 # 0.5 ns
+            nstep: 5.e+5
+    
+    fpmd:
+        description: 'Protocol to perform long first-principles MD at normal precision at moderate computational cost.'
+        diffusion_parameters:
+            'max_md_iterations': 1
+            'min_md_iterations': 1
+        msd_parameters:
+            'equilibration_time_fs': 5.e+3
+            't_fit_fraction' : 0.66
+            't_start_fit_fs' : 1.e+3
+            't_end_fit_fs_length' : 1.5e+4
+    
+    fpmd_short:
+        description: 'Protocol to perform short first-principles MD at normal precision at moderate computational cost. This is expected to be used to generate data for ML training.'
+        diffusion_parameters:
+            'max_md_iterations': 1
+            'min_md_iterations': 1
+        msd_parameters:
+            'equilibration_time_fs': 5.e+2
+            't_fit_fraction' : 0.75
+            't_start_fit_fs' : 1.e+3
+            't_end_fit_fs_length' : 2.e+3

@@ -31,6 +31,7 @@ default_inputs:
                 verbosity: 'low'
             SYSTEM:
                 nosym: True
+                occupations: fixed
             ELECTRONS:
                 electron_maxstep: 80
                 mixing_beta: 0.4
@@ -43,6 +44,7 @@ default_protocol: moderate
 protocols:
     moderate:
         description: 'Protocol to perform the computation at normal precision at moderate computational cost.'
+    
     precise:
         description: 'Protocol to perform the computation at high precision at higher computational cost.'
         meta_parameters:
@@ -54,6 +56,7 @@ protocols:
                 CONTROL:
                     forc_conv_thr: 0.5e-4
                     dt: 10
+
     fast:
         description: 'Protocol to perform the computation at low precision at minimal computational cost for testing purposes.'
         meta_parameters:
@@ -64,3 +67,44 @@ protocols:
                 CONTROL:
                     forc_conv_thr: 1.e-3
                     dt: 20
+
+    fpmd:
+        description: 'Protocol to perform long first-principles MD at normal precision at moderate computational cost.'
+        max_iterations: 25 # FPMD will take a long time to finish
+        nstep: 1.e+5
+        pw:
+            parameters:
+                CONTROL:
+                    lflipper: False
+                    dt: 30 # 1.44 femto seconds
+                ELECTRONS:
+                    mixing_beta: 0.2
+                IONS:
+                    wfc_extrapolation: 'second_order' # extrapolation when running FPMD
+                    pot_extrapolation: 'second_order'
+            metadata:
+                options:
+                    resources: 
+                        num_mpiprocs_per_machine: 36
+                    max_wallclock_seconds: 86200  # 24 hours
+
+    fpmd_short:
+        description: 'Protocol to perform short first-principles MD at normal precision at moderate computational cost. This is expected to be used to generate data for ML training.'
+        max_iterations: 5 # short FPMD should not be run too long
+        nstep: 1.e+4 
+        pw:
+            parameters:
+                CONTROL:
+                    lflipper: False
+                    dt: 30 # 1.44 femto seconds
+                    iprint: 1 # for ML training more data is better
+                ELECTRONS:
+                    mixing_beta: 0.2
+                IONS:
+                    wfc_extrapolation: 'second_order'
+                    pot_extrapolation: 'second_order'
+            metadata:
+                options:
+                    resources: 
+                        num_mpiprocs_per_machine: 36
+                    max_wallclock_seconds: 86200  # 24 hours

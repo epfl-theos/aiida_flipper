@@ -31,6 +31,7 @@ default_inputs:
                 verbosity: 'low'
             SYSTEM:
                 nosym: True
+                occupations: fixed
             ELECTRONS:
                 electron_maxstep: 80
                 mixing_beta: 0.4
