@@ -34,7 +34,7 @@ default_inputs:
                         num_machines: 1
                         # num_cores: 32
                         num_cores_per_mpiproc: 1
-                        num_mpiprocs_per_machine: 32
+                        num_mpiprocs_per_machine: 128
                     max_wallclock_seconds: 42200  # 12 hours
                     withmpi: True
 
@@ -73,6 +73,14 @@ protocols:
             't_fit_fraction' : 0.66
             't_start_fit_fs' : 1.e+3
             't_end_fit_fs_length' : 1.5e+4
+        md:
+            nstep: 1.e+5
+            pw:
+                metadata:
+                    options:
+                        resources: # For 72 threads on piz-daint
+                            num_mpiprocs_per_machine: 36
+                        max_wallclock_seconds: 86200  # 24 hours
     
     fpmd_short:
         description: 'Protocol to perform short first-principles MD at normal precision at moderate computational cost. This is expected to be used to generate data for ML training.'
@@ -84,3 +92,11 @@ protocols:
             't_fit_fraction' : 0.75
             't_start_fit_fs' : 1.e+3
             't_end_fit_fs_length' : 2.e+3
+        md:
+            nstep: 1.e+4
+            pw:
+                metadata:
+                    options:
+                        resources: # For 72 threads on piz-daint
+                            num_mpiprocs_per_machine: 36
+                        max_wallclock_seconds: 86200  # 24 hours

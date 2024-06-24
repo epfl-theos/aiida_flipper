@@ -9,6 +9,7 @@ from aiida_quantumespresso.workflows.protocols.utils import ProtocolMixin
 
 from aiida_flipper.calculations.functions.functions import get_diffusion_from_msd, get_structure_from_trajectory, concatenate_trajectory
 from aiida_flipper.utils.utils import get_or_create_input_node, get_total_trajectory
+import numpy as np
 
 ReplayMDWorkChain = WorkflowFactory('quantumespresso.flipper.replaymd')
 
@@ -273,15 +274,15 @@ class LinDiffusionWorkChain(ProtocolMixin, BaseRestartWorkChain):
                 trajectory=concatenated_trajectory)['msd_results']
         sem = msd_results.attributes['{}'.format(self.ctx.msd_parameters_d['species_of_interest'][0])]['diffusion_sem_cm2_s']
         mean_d = msd_results.attributes['{}'.format(self.ctx.msd_parameters_d['species_of_interest'][0])]['diffusion_mean_cm2_s']
-        sem_relative = sem / mean_d
+        sem_relative = sem / np.mean(mean_d)
         sem_target = self.ctx.diffusion_parameters_d['sem_threshold']
         sem_relative_target = self.ctx.diffusion_parameters_d['sem_relative_threshold']
 
-        self.report(f'after iteration {self.ctx.replay_counter} mean msd is {mean_d}')
+        self.report(f'after iteration {self.ctx.replay_counter} mean msd is {np.mean(mean_d)}')
 
-        if (mean_d < 0.):
+        if any(diff < 0 for diff in mean_d):
             # the diffusion is negative: means that the value is not converged enough yet
-            self.report(f'The Diffusion coefficient ( {mean_d} +/- {sem} ) is negative, i.e. not converged.')
+            self.report(f'The Diffusion coefficient ( {min(mean_d)} +/- {sem} ) is negative, i.e. not converged.')
             self.ctx.converged = False
         elif (sem < sem_target):
             # This means that the  standard error of the mean in my diffusion coefficient is below the target accuracy
